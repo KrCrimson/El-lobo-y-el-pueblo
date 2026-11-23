@@ -66,6 +66,7 @@ test('empezar: solo el anfitrión, con mínimo de jugadores y configuración vá
 
 test('rolesDesdeConfig arma la lista pedida o usa el reparto por defecto', () => {
   assert.equal(rolesDesdeConfig(6, undefined), undefined);
+  assert.deepEqual(rolesDesdeConfig(6, { lobos: 1, cupido: true }), ['lobo', 'cupido', 'aldeano', 'aldeano', 'aldeano', 'aldeano']);
   assert.deepEqual(rolesDesdeConfig(6, { lobos: 2, vidente: true }), ['lobo', 'lobo', 'vidente', 'aldeano', 'aldeano', 'aldeano']);
   assert.throws(() => rolesDesdeConfig(3, { lobos: 1, vidente: true, bruja: true, cazador: true }), /más roles/);
 });
@@ -82,7 +83,8 @@ test('cada jugador recibe solo su vista: sin roles ajenos ni tokens', () => {
   assert.equal(ver(0).juego.yo.rol, 'lobo');
   assert.equal(ver(1).juego.yo.rol, 'vidente');
   assert.equal(ver(2).juego.fase, 'noche'); // un aldeano no sabe en qué subfase está la noche
-  assert.equal(ver(0).juego.fase, 'lobos');
+  assert.equal(ver(1).juego.fase, 'vidente'); // la noche empieza por la vidente
+  assert.equal(ver(0).juego.fase, 'noche'); // y los lobos aún esperan su turno
 });
 
 test('la noche dura al menos lo mínimo aunque no haya vidente ni bruja', () => {
@@ -169,3 +171,22 @@ test('acciones fuera de lugar', () => {
   assert.throws(() => g.empezar('s0', SOLO_LOBO), /ya empezó/);
   assert.throws(() => g.jugar('s1', { tipo: 'matar', objetivo: 'x' }), /Solo los lobos/);
 });
+
+test('opciones de partida: cupido, capitán y revelar roles; la barra de tiempo conoce la duración total', () => {
+  const { g, ver } = montar(6);
+  g.empezar('s0', { lobos: 1, cupido: true, capitan: true, revelarRoles: true });
+  assert.equal(ver(1).juego.yo.rol, 'cupido');
+  assert.equal(ver(1).juego.fase, 'cupido');
+  assert.equal(ver(0).juego.fase, 'noche');
+  assert.deepEqual(ver(1).juego.temporizador, { restanteMs: TIEMPOS.cupido, totalMs: TIEMPOS.cupido });
+  assert.equal(ver(0).juego.temporizador, undefined); // los demás no ven un reloj que delate quién actúa
+});
+
+test('una partida desatendida con cupido y capitán también termina sola', () => {
+  const { g, r, ver } = montar(7);
+  g.empezar('s0', { lobos: 1, cupido: true, capitan: true });
+  for (let i = 0; i < 80 && ver(0).etapa !== 'fin'; i++) r.avanzar(TIEMPOS.votacion + TIEMPOS.nocheMin);
+  assert.equal(ver(0).etapa, 'fin');
+  assert.ok(['pueblo', 'lobos'].includes(ver(0).juego.ganador));
+});
+

@@ -8,14 +8,15 @@
  * Nunca se entrega el token de otro jugador ni el estado completo del juego.
  */
 const crypto = require('node:crypto');
-const { ROL, MIN_JUGADORES, MAX_JUGADORES, crearPartida, actuar, vista, pendientes } = require('./juego');
+const { ROL, FASES_NOCHE, MIN_JUGADORES, MAX_JUGADORES, crearPartida, actuar, vista, pendientes } = require('./juego');
 
 const TIEMPOS = {
-  lobos: 60_000, vidente: 40_000, bruja: 40_000, cazador: 30_000, votacion: 120_000,
+  cupido: 40_000, vidente: 40_000, lobos: 60_000, bruja: 40_000,
+  cazador: 30_000, sucesor: 30_000, capitan: 60_000, votacion: 120_000,
   nocheMin: 20_000, // duración mínima visible de la noche (evita delatar qué roles siguen vivos por el tiempo)
   salaInactiva: 30 * 60_000,
 };
-const NOCHE = ['lobos', 'vidente', 'bruja'];
+const NOCHE = FASES_NOCHE;
 const LETRAS = 'ABCDEFGHJKMNPQRSTUVWXYZ'; // sin I ni O para no confundir con 1 y 0
 const MAX_SALAS = 100;
 
@@ -49,6 +50,7 @@ function rolesDesdeConfig(n, cfg) {
   if (cfg.vidente) roles.push(ROL.VIDENTE);
   if (cfg.bruja) roles.push(ROL.BRUJA);
   if (cfg.cazador) roles.push(ROL.CAZADOR);
+  if (cfg.cupido) roles.push(ROL.CUPIDO);
   if (roles.length > n) falla('Hay más roles que jugadores');
   while (roles.length < n) roles.push(ROL.ALDEANO);
   return roles;
@@ -177,7 +179,9 @@ function crearGestor({
     const presentes = sala.jugadores.filter((j) => j.conectado);
     if (presentes.length < MIN_JUGADORES) falla(`Hacen falta al menos ${MIN_JUGADORES} jugadores conectados`);
     const roles = rolesDesdeConfig(presentes.length, config);
-    sala.juego = crearPartida(presentes.map((j) => ({ id: j.id, nombre: j.nombre })), { roles, rng });
+    sala.juego = crearPartida(presentes.map((j) => ({ id: j.id, nombre: j.nombre })), {
+      roles, rng, capitan: config?.capitan === true, revelarRoles: config?.revelarRoles === true,
+    });
     sala.jugadores = presentes;
     sala.etapa = 'juego';
     sala.nocheDesde = ahora();
@@ -234,6 +238,7 @@ function crearGestor({
     const ms = tiempos[e.fase];
     if (!ms) return;
     sala.limite = ahora() + ms;
+    sala.limiteTotal = ms;
     sala.cancelar = programar(() => vencer(sala), ms);
   }
 
@@ -252,10 +257,16 @@ function crearGestor({
     const elige = (lista) => lista[Math.floor(rng() * lista.length)].id;
     const vivos = e.jugadores.filter((j) => j.vivo);
     switch (e.fase) {
+      case 'cupido': {
+        const a = elige(vivos);
+        return { tipo: 'enamorar', objetivos: [a, elige(vivos.filter((j) => j.id !== a))] };
+      }
       case 'lobos': return { tipo: 'matar', objetivo: elige(vivos.filter((j) => j.rol !== ROL.LOBO)) };
       case 'vidente': return { tipo: 'ver', objetivo: elige(vivos.filter((j) => j.id !== id)) };
       case 'bruja': return { tipo: 'pocion' };
       case 'cazador': return { tipo: 'disparar', objetivo: elige(vivos) };
+      case 'sucesor': return { tipo: 'sucesor', objetivo: elige(vivos) };
+      case 'capitan': return { tipo: 'elegir', objetivo: null };
       default: return { tipo: 'votar', objetivo: null };
     }
   }
@@ -279,7 +290,7 @@ function crearGestor({
     if (!sala.juego) return base;
     const v = vistaJuego(sala, id);
     v.jugadores = v.jugadores.map((j) => ({ ...j, conectado: sala.jugadores.find((x) => x.id === j.id)?.conectado ?? false }));
-    if (v.fase !== 'noche' && sala.limite) v.temporizador = { restanteMs: Math.max(0, sala.limite - ahora()) };
+    if (v.fase !== 'noche' && sala.limite) v.temporizador = { restanteMs: Math.max(0, sala.limite - ahora()), totalMs: sala.limiteTotal };
     return { ...base, juego: v };
   }
 

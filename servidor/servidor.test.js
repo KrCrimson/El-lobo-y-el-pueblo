@@ -40,9 +40,12 @@ function bot(s) {
     const otros = j.jugadores.filter((x) => x.vivo && x.id !== j.yo.id);
     const acciones = {
       lobos: () => ({ tipo: 'matar', objetivo: otros.find((x) => !j.companerosLobo.includes(x.id)).id }),
+      cupido: () => ({ tipo: 'enamorar', objetivos: [otros[0].id, otros[1].id] }),
       vidente: () => ({ tipo: 'ver', objetivo: otros[0].id }),
       bruja: () => ({ tipo: 'pocion' }),
       cazador: () => ({ tipo: 'disparar', objetivo: otros[0].id }),
+      sucesor: () => ({ tipo: 'sucesor', objetivo: otros[0].id }),
+      capitan: () => ({ tipo: 'elegir', objetivo: otros[0].id }),
       votacion: () => ({ tipo: 'votar', objetivo: null }),
     };
     s.emit('actuar', { accion: acciones[j.fase]() }, () => {});
@@ -59,7 +62,7 @@ test('partida completa por WebSocket: crear, unirse, jugar y terminar sin filtra
     await esperar(() => ultima(cs[0]).jugadoresSala.length === 5);
     cs.forEach(bot);
     assert.equal((await pedir(cs[1], 'empezar', {})).ok, false); // no es el anfitrión
-    assert.equal((await pedir(cs[0], 'empezar', {})).ok, true);
+    assert.equal((await pedir(cs[0], 'empezar', { config: { lobos: 1, vidente: true, cupido: true, capitan: true } })).ok, true);
 
     await esperar(() => cs.every((c) => ultima(c).juego?.ganador));
     const fin = ultima(cs[0]);
@@ -72,7 +75,12 @@ test('partida completa por WebSocket: crear, unirse, jugar y terminar sin filtra
         assert.equal(JSON.stringify(v).includes('token-integracion'), false, 'un token viajó por la red');
         if (!v.juego || v.juego.ganador) continue;
         for (const j of v.juego.jugadores) {
-          if (j.id !== v.yo && j.vivo) assert.equal('rol' in j, false, `el jugador ${i} vio el rol de un vivo`);
+          if (j.id !== v.yo) assert.equal('rol' in j, false, `el jugador ${i} vio el rol de otro jugador`);
+        }
+        for (const ev of v.juego.publico.filter((x) => x.tipo === 'muerte')) {
+          assert.equal('rol' in ev, false, 'el registro público reveló un rol');
+          assert.notEqual(ev.causa, 'veneno', 'el registro público reveló el veneno');
+          assert.notEqual(ev.causa, 'lobos', 'el registro público reveló a los lobos');
         }
       }
     }

@@ -1,16 +1,22 @@
 'use strict';
 /**
- * Lógica pura de "Lobos del Pueblo" (juego de roles ocultos tipo Mafia/Werewolf).
+ * Lógica pura de "El Lobo y el Pueblo" (juego de roles ocultos tipo Mafia/Werewolf).
  * Sin red ni base de datos: recibe un estado y una acción, devuelve un estado nuevo.
  * El servidor (Socket.IO) solo reenvía lo que devuelve `vista()`, que es lo único
  * que cada jugador puede ver. NUNCA enviar el `estado` completo a un cliente.
  *
- * Fases: lobos → vidente → bruja → (amanecer automático) → [cazador] → votacion → [cazador] → lobos …
- * Simplificaciones respecto al juego de mesa: sin capitán, empate en la votación = nadie muere,
- * la bruja decide curar y/o envenenar en una sola acción.
+ * Noche (en este orden): cupido (solo la 1.ª noche) → vidente → lobos → bruja → amanecer automático.
+ * Día: [elección de capitán, solo el 1.er día] → votación. Las "últimas acciones" (disparo del cazador,
+ * sucesión del capitán) se atienden en cola, antes de seguir.
+ *
+ * Simplificaciones respecto al juego de mesa: empate en la votación = nadie muere (salvo que el voto
+ * del capitán desempate), la bruja decide curar y/o envenenar en una sola acción, y los enamorados
+ * solo mueren juntos (no ganan como pareja).
  */
 
-const ROL = { ALDEANO: 'aldeano', LOBO: 'lobo', VIDENTE: 'vidente', BRUJA: 'bruja', CAZADOR: 'cazador' };
+const ROL = { ALDEANO: 'aldeano', LOBO: 'lobo', VIDENTE: 'vidente', BRUJA: 'bruja', CAZADOR: 'cazador', CUPIDO: 'cupido' };
+const UNICOS = [ROL.VIDENTE, ROL.BRUJA, ROL.CAZADOR, ROL.CUPIDO];
+const FASES_NOCHE = ['cupido', 'vidente', 'lobos', 'bruja'];
 const MIN_JUGADORES = 5;
 const MAX_JUGADORES = 12;
 
@@ -48,14 +54,17 @@ function validarRoles(roles, n) {
   if (roles.some((r) => !Object.values(ROL).includes(r))) falla('Rol desconocido');
   if (!roles.includes(ROL.LOBO)) falla('Debe haber al menos un lobo');
   if (roles.every((r) => r === ROL.LOBO)) falla('Debe haber al menos un jugador que no sea lobo');
-  for (const unico of [ROL.VIDENTE, ROL.BRUJA, ROL.CAZADOR]) {
+  for (const unico of UNICOS) {
     if (roles.filter((r) => r === unico).length > 1) falla(`Solo puede haber un ${unico}`);
   }
 }
 
 // ---------- creación ----------
-/** jugadores: [{ id, nombre }]. opciones.roles: lista de roles (uno por jugador) o se reparte por defecto. */
-function crearPartida(jugadores, { roles, rng = Math.random } = {}) {
+/**
+ * jugadores: [{ id, nombre }]. opciones.roles: un rol por jugador (si no, reparto por defecto).
+ * opciones.capitan: el pueblo elige un capitán el primer día. opciones.revelarRoles: al morir se muestra el rol.
+ */
+function crearPartida(jugadores, { roles, rng = Math.random, capitan = false, revelarRoles = false } = {}) {
   const ids = new Set(jugadores.map((j) => j.id));
   if (ids.size !== jugadores.length) falla('Hay jugadores repetidos');
   const lista = roles ?? rolesPorDefecto(jugadores.length);
@@ -65,11 +74,16 @@ function crearPartida(jugadores, { roles, rng = Math.random } = {}) {
     fase: null,
     ronda: 1,
     jugadores: jugadores.map((j, i) => ({ id: j.id, nombre: j.nombre, rol: barajados[i], vivo: true })),
+    usaCapitan: !!capitan,
+    revelarRoles: !!revelarRoles,
+    capitan: null,
+    enamorados: [], // [idA, idB] cuando Cupido ya actuó
     noche: nocheVacia(),
     bruja: { pocionVida: true, pocionMuerte: true },
     vistos: [], // lo que ha averiguado la vidente: [{ id, rol }]
     votos: {},
-    pendienteCazador: null, // { cazadorId, volverA: 'votacion' | 'noche' }
+    cola: [], // últimas acciones pendientes: { tipo: 'cazador' | 'sucesor', jugador }
+    volverA: null, // 'dia' | 'noche': a dónde ir cuando la cola se vacíe
     publico: [],
     ganador: null,
   };
@@ -82,26 +96,17 @@ function nocheVacia() {
 }
 
 // ---------- flujo de fases ----------
-const ORDEN_NOCHE = ['lobos', 'vidente', 'bruja'];
-
 /** ¿Hay alguien vivo que pueda actuar en esa fase de noche? */
 function hayActor(e, fase) {
+  if (fase === 'cupido') return e.ronda === 1 && e.enamorados.length === 0 && vivosConRol(e, ROL.CUPIDO).length > 0;
   if (fase === 'lobos') return vivosConRol(e, ROL.LOBO).length > 0;
   if (fase === 'vidente') return vivosConRol(e, ROL.VIDENTE).length > 0;
-  if (fase === 'bruja') {
-    return vivosConRol(e, ROL.BRUJA).length > 0 && (e.bruja.pocionVida || e.bruja.pocionMuerte);
-  }
+  if (fase === 'bruja') return vivosConRol(e, ROL.BRUJA).length > 0 && (e.bruja.pocionVida || e.bruja.pocionMuerte);
   return false;
 }
 
-function primeraFaseNoche(e) {
-  return ORDEN_NOCHE.find((f) => hayActor(e, f)) ?? 'amanecer';
-}
-
-function faseNocheSiguiente(e, actual) {
-  const resto = ORDEN_NOCHE.slice(ORDEN_NOCHE.indexOf(actual) + 1);
-  return resto.find((f) => hayActor(e, f)) ?? 'amanecer';
-}
+const primeraFaseNoche = (e) => FASES_NOCHE.find((f) => hayActor(e, f)) ?? 'amanecer';
+const faseNocheSiguiente = (e, actual) => FASES_NOCHE.slice(FASES_NOCHE.indexOf(actual) + 1).find((f) => hayActor(e, f)) ?? 'amanecer';
 
 function comprobarGanador(e) {
   const lobos = vivosConRol(e, ROL.LOBO).length;
@@ -120,11 +125,19 @@ function terminarSiHayGanador(e) {
   return true;
 }
 
+/** Mata a un jugador (y a su pareja si estaba enamorado). Devuelve todos los que murieron. */
 function matar(e, id, causa) {
-  const j = porId(e, id);
-  j.vivo = false;
-  e.publico.push({ tipo: 'muerte', jugador: j.id, nombre: j.nombre, rol: j.rol, causa, ronda: e.ronda });
-  return j;
+  const muertos = [];
+  const baja = (jid, c) => {
+    const j = porId(e, jid);
+    if (!j.vivo) return;
+    j.vivo = false;
+    e.publico.push({ tipo: 'muerte', jugador: j.id, nombre: j.nombre, rol: j.rol, causa: c, ronda: e.ronda });
+    muertos.push(j);
+    if (e.enamorados.includes(jid)) baja(e.enamorados.find((x) => x !== jid), 'amor');
+  };
+  baja(id, causa);
+  return muertos;
 }
 
 function empezarNoche(e) {
@@ -135,37 +148,58 @@ function empezarNoche(e) {
   if (e.fase === 'amanecer') amanecer(e);
 }
 
-/** Pasa a donde corresponda después de morir alguien (puede interrumpir el cazador). */
-function continuar(e, muertos, volverA) {
-  const cazador = muertos.find((j) => j.rol === ROL.CAZADOR);
-  if (terminarSiHayGanador(e)) return;
-  if (cazador) {
-    e.pendienteCazador = { cazadorId: cazador.id, volverA };
-    e.fase = 'cazador';
-    return;
+function iniciarDia(e) {
+  e.votos = {};
+  e.fase = e.usaCapitan && !e.capitan && e.ronda === 1 ? 'capitan' : 'votacion';
+}
+
+const siguiente = (e, volverA) => (volverA === 'dia' ? iniciarDia(e) : empezarNoche(e));
+
+/** Anota las últimas acciones que dejan los muertos: el cazador dispara y el capitán nombra sucesor. */
+function encolar(e, muertos) {
+  for (const m of muertos) {
+    if (m.rol === ROL.CAZADOR) e.cola.push({ tipo: 'cazador', jugador: m.id });
+    if (e.capitan === m.id) e.cola.push({ tipo: 'sucesor', jugador: m.id });
   }
-  if (volverA === 'votacion') e.fase = 'votacion';
-  else empezarNoche(e);
+}
+
+/** Después de que muera alguien: ¿terminó la partida? ¿hay últimas acciones? Si no, sigue el flujo. */
+function continuar(e, muertos, volverA) {
+  if (terminarSiHayGanador(e)) return;
+  encolar(e, muertos);
+  if (e.cola.length) { e.volverA = volverA; e.fase = e.cola[0].tipo; return; }
+  siguiente(e, volverA);
+}
+
+function terminarUltimaAccion(e, nuevosMuertos) {
+  e.cola.shift();
+  if (terminarSiHayGanador(e)) return;
+  encolar(e, nuevosMuertos);
+  if (e.cola.length) { e.fase = e.cola[0].tipo; return; }
+  const volverA = e.volverA;
+  e.volverA = null;
+  siguiente(e, volverA);
 }
 
 function amanecer(e) {
-  const muertos = [];
   const { victima, curada, veneno } = e.noche;
-  if (victima && !curada) muertos.push(matar(e, victima, 'lobos'));
-  if (veneno && porId(e, veneno).vivo) muertos.push(matar(e, veneno, 'veneno'));
+  const muertos = [];
+  if (victima && !curada) muertos.push(...matar(e, victima, 'lobos'));
+  if (veneno) muertos.push(...matar(e, veneno, 'veneno'));
   if (muertos.length === 0) e.publico.push({ tipo: 'sin_muertes', ronda: e.ronda });
-  e.votos = {};
-  continuar(e, muertos, 'votacion');
+  continuar(e, muertos, 'dia');
 }
 
 // ---------- acciones ----------
-function elegirMasVotado(votos, rng) {
+/** Recuento de votos. `pesoDe(votante)` permite que el voto del capitán valga doble. */
+function contar(votos, pesoDe = () => 1) {
   const cuenta = {};
-  for (const objetivo of Object.values(votos)) if (objetivo) cuenta[objetivo] = (cuenta[objetivo] ?? 0) + 1;
+  for (const [votante, objetivo] of Object.entries(votos)) if (objetivo) cuenta[objetivo] = (cuenta[objetivo] ?? 0) + pesoDe(votante);
   const max = Math.max(0, ...Object.values(cuenta));
-  const empatados = Object.keys(cuenta).filter((id) => cuenta[id] === max);
-  return { cuenta, empatados, elegido: empatados.length === 1 ? empatados[0] : null };
+  return { cuenta, empatados: Object.keys(cuenta).filter((id) => cuenta[id] === max) };
 }
+
+const alAzar = (lista, rng) => lista[Math.floor(rng() * lista.length)];
 
 function exigirVivo(e, id) {
   const j = porId(e, id);
@@ -180,18 +214,20 @@ function exigirObjetivoVivo(e, id) {
   return j;
 }
 
+function avanzarNoche(e, desde) {
+  e.fase = faseNocheSiguiente(e, desde);
+  if (e.fase === 'amanecer') amanecer(e);
+}
+
 const ACCIONES = {
-  lobos(e, yo, accion, rng) {
-    if (accion.tipo !== 'matar') falla('Acción no válida en esta fase');
-    if (yo.rol !== ROL.LOBO) falla('Solo los lobos actúan ahora');
-    const objetivo = exigirObjetivoVivo(e, accion.objetivo);
-    if (objetivo.rol === ROL.LOBO) falla('Un lobo no puede atacar a otro lobo');
-    e.noche.votosLobos[yo.id] = objetivo.id;
-    const lobos = vivosConRol(e, ROL.LOBO);
-    if (!lobos.every((l) => e.noche.votosLobos[l.id])) return;
-    const { empatados, elegido } = elegirMasVotado(e.noche.votosLobos);
-    e.noche.victima = elegido ?? empatados[Math.floor(rng() * empatados.length)];
-    avanzarNoche(e, 'lobos');
+  cupido(e, yo, accion) {
+    if (accion.tipo !== 'enamorar') falla('Acción no válida en esta fase');
+    if (yo.rol !== ROL.CUPIDO) falla('Solo Cupido actúa ahora');
+    const [a, b] = Array.isArray(accion.objetivos) ? accion.objetivos : [];
+    if (!a || !b || a === b) falla('Elige a dos jugadores distintos');
+    exigirObjetivoVivo(e, a); exigirObjetivoVivo(e, b);
+    e.enamorados = [a, b];
+    avanzarNoche(e, 'cupido');
   },
 
   vidente(e, yo, accion) {
@@ -201,6 +237,18 @@ const ACCIONES = {
     if (objetivo.id === yo.id) falla('No puedes verte a ti misma');
     e.vistos.push({ id: objetivo.id, rol: objetivo.rol });
     avanzarNoche(e, 'vidente');
+  },
+
+  lobos(e, yo, accion, rng) {
+    if (accion.tipo !== 'matar') falla('Acción no válida en esta fase');
+    if (yo.rol !== ROL.LOBO) falla('Solo los lobos actúan ahora');
+    const objetivo = exigirObjetivoVivo(e, accion.objetivo);
+    if (objetivo.rol === ROL.LOBO) falla('Un lobo no puede atacar a otro lobo');
+    e.noche.votosLobos[yo.id] = objetivo.id;
+    if (!vivosConRol(e, ROL.LOBO).every((l) => e.noche.votosLobos[l.id])) return;
+    const { empatados } = contar(e.noche.votosLobos);
+    e.noche.victima = empatados.length === 1 ? empatados[0] : alAzar(empatados, rng);
+    avanzarNoche(e, 'lobos');
   },
 
   bruja(e, yo, accion) {
@@ -224,13 +272,35 @@ const ACCIONES = {
 
   cazador(e, yo, accion) {
     if (accion.tipo !== 'disparar') falla('Acción no válida en esta fase');
-    const pendiente = e.pendienteCazador;
-    if (!pendiente || yo.id !== pendiente.cazadorId) falla('Solo el cazador puede disparar ahora');
+    if (e.cola[0]?.jugador !== yo.id) falla('Solo el cazador puede disparar ahora');
     const objetivo = exigirObjetivoVivo(e, accion.objetivo);
-    const volverA = pendiente.volverA;
-    e.pendienteCazador = null;
-    const muerto = matar(e, objetivo.id, 'cazador');
-    continuar(e, [muerto], volverA);
+    terminarUltimaAccion(e, matar(e, objetivo.id, 'cazador'));
+  },
+
+  sucesor(e, yo, accion) {
+    if (accion.tipo !== 'sucesor') falla('Acción no válida en esta fase');
+    if (e.cola[0]?.jugador !== yo.id) falla('Solo el capitán puede nombrar sucesor');
+    const objetivo = exigirObjetivoVivo(e, accion.objetivo);
+    e.capitan = objetivo.id;
+    e.publico.push({ tipo: 'capitan', jugador: objetivo.id, nombre: objetivo.nombre, sucesion: true });
+    terminarUltimaAccion(e, []);
+  },
+
+  capitan(e, yo, accion, rng) {
+    if (accion.tipo !== 'elegir') falla('Acción no válida en esta fase');
+    if (accion.objetivo) exigirObjetivoVivo(e, accion.objetivo);
+    e.votos[yo.id] = accion.objetivo ?? null;
+    if (!vivos(e).every((j) => j.id in e.votos)) return;
+    const { empatados } = contar(e.votos);
+    const elegido = empatados.length === 0 ? null : empatados.length === 1 ? empatados[0] : alAzar(empatados, rng);
+    if (elegido) {
+      e.capitan = elegido;
+      e.publico.push({ tipo: 'capitan', jugador: elegido, nombre: porId(e, elegido).nombre });
+    } else {
+      e.publico.push({ tipo: 'sin_capitan' });
+    }
+    e.votos = {};
+    e.fase = 'votacion';
   },
 
   votacion(e, yo, accion) {
@@ -238,21 +308,18 @@ const ACCIONES = {
     if (accion.objetivo) exigirObjetivoVivo(e, accion.objetivo);
     e.votos[yo.id] = accion.objetivo ?? null; // null = abstención
     if (!vivos(e).every((j) => j.id in e.votos)) return;
-    const { cuenta, elegido } = elegirMasVotado(e.votos);
+    const { cuenta, empatados } = contar(e.votos, (v) => (v === e.capitan ? 2 : 1));
     e.publico.push({ tipo: 'recuento', ronda: e.ronda, votos: cuenta });
+    // El voto del capitán vale doble y, si aun así hay empate, decide entre los empatados.
+    const votoDelCapitan = e.votos[e.capitan];
+    const elegido = empatados.length === 1 ? empatados[0] : empatados.includes(votoDelCapitan) ? votoDelCapitan : null;
     if (!elegido) {
       e.publico.push({ tipo: 'sin_linchamiento', ronda: e.ronda });
       return empezarNoche(e);
     }
-    const muerto = matar(e, elegido, 'votacion');
-    continuar(e, [muerto], 'noche');
+    continuar(e, matar(e, elegido, 'votacion'), 'noche');
   },
 };
-
-function avanzarNoche(e, desde) {
-  e.fase = faseNocheSiguiente(e, desde);
-  if (e.fase === 'amanecer') amanecer(e);
-}
 
 /**
  * Aplica una acción de un jugador y devuelve un estado nuevo (el original no se modifica).
@@ -264,8 +331,9 @@ function actuar(estado, jugadorId, accion, rng = Math.random) {
   const handler = ACCIONES[estado.fase];
   if (!handler) falla('No se puede actuar en esta fase');
   const e = clonar(estado);
-  // El cazador ya está muerto cuando dispara: es el único muerto que puede actuar (su último disparo).
-  const yo = estado.fase === 'cazador' ? porId(e, jugadorId) : exigirVivo(e, jugadorId);
+  // El cazador y el capitán ya están muertos cuando actúan por última vez: son los únicos muertos que pueden hacerlo.
+  const ultima = estado.fase === 'cazador' || estado.fase === 'sucesor';
+  const yo = ultima ? porId(e, jugadorId) : exigirVivo(e, jugadorId);
   if (!yo) falla('Jugador desconocido');
   handler(e, yo, accion, rng);
   return e;
@@ -275,33 +343,46 @@ function actuar(estado, jugadorId, accion, rng = Math.random) {
 /** Quién debe actuar ahora (ids). Útil para temporizadores y para marcar "esperando a…". */
 function pendientes(e) {
   switch (e.fase) {
-    case 'lobos': return vivosConRol(e, ROL.LOBO).filter((l) => !e.noche.votosLobos[l.id]).map((j) => j.id);
+    case 'cupido': return vivosConRol(e, ROL.CUPIDO).map((j) => j.id);
     case 'vidente': return vivosConRol(e, ROL.VIDENTE).map((j) => j.id);
+    case 'lobos': return vivosConRol(e, ROL.LOBO).filter((l) => !e.noche.votosLobos[l.id]).map((j) => j.id);
     case 'bruja': return vivosConRol(e, ROL.BRUJA).map((j) => j.id);
-    case 'cazador': return e.pendienteCazador ? [e.pendienteCazador.cazadorId] : [];
+    case 'cazador':
+    case 'sucesor': return e.cola.length ? [e.cola[0].jugador] : [];
+    case 'capitan':
     case 'votacion': return vivos(e).filter((j) => !(j.id in e.votos)).map((j) => j.id);
     default: return [];
   }
+}
+
+/** El registro público no delata roles ni cómo murió alguien de noche (lobos o veneno se ven igual). */
+function sanear(ev, e) {
+  if (ev.tipo !== 'muerte') return ev;
+  const out = { ...ev };
+  if (out.causa === 'lobos' || out.causa === 'veneno') out.causa = 'noche';
+  if (!e.revelarRoles) delete out.rol;
+  return out;
 }
 
 /** Vista segura para UN jugador: no incluye roles de otros vivos ni acciones secretas ajenas. */
 function vista(e, jugadorId) {
   const yo = porId(e, jugadorId);
   if (!yo) falla('Jugador desconocido');
-  const revelar = (j) => j.id === yo.id || !j.vivo || e.fase === 'fin';
   const puedeActuar = pendientes(e).includes(yo.id);
   // Las subfases de la noche solo las ve quien actúa: si no, mostrar "vidente" o "bruja" delataría qué roles siguen vivos.
-  const enNoche = ['lobos', 'vidente', 'bruja'].includes(e.fase);
+  const enNoche = FASES_NOCHE.includes(e.fase);
+  const revelar = (j) => j.id === yo.id || e.fase === 'fin' || (!j.vivo && e.revelarRoles);
   const v = {
     fase: enNoche && !puedeActuar ? 'noche' : e.fase,
     ronda: e.ronda,
     ganador: e.ganador,
+    capitan: e.capitan,
     yo: { id: yo.id, nombre: yo.nombre, rol: yo.rol, vivo: yo.vivo },
     jugadores: e.jugadores.map((j) => ({ id: j.id, nombre: j.nombre, vivo: j.vivo, ...(revelar(j) ? { rol: j.rol } : {}) })),
-    publico: e.publico,
+    publico: e.publico.map((ev) => sanear(ev, e)),
     puedeActuar,
   };
-  if (e.fase === 'votacion') v.yaVotaron = Object.keys(e.votos);
+  if (e.fase === 'votacion' || e.fase === 'capitan') v.yaVotaron = Object.keys(e.votos);
   if (yo.rol === ROL.LOBO) {
     v.companerosLobo = e.jugadores.filter((j) => j.rol === ROL.LOBO && j.id !== yo.id).map((j) => j.id);
     if (e.fase === 'lobos') v.votosLobos = { ...e.noche.votosLobos };
@@ -311,7 +392,11 @@ function vista(e, jugadorId) {
     v.pociones = { ...e.bruja };
     if (e.fase === 'bruja') v.victimaDeLosLobos = e.noche.victima;
   }
+  if (e.enamorados.includes(yo.id)) v.enamoradoCon = e.enamorados.find((x) => x !== yo.id);
+  if (yo.rol === ROL.CUPIDO && e.enamorados.length) v.enamorados = [...e.enamorados];
   return v;
 }
 
-module.exports = { ROL, MIN_JUGADORES, MAX_JUGADORES, crearPartida, actuar, vista, pendientes, rolesPorDefecto };
+module.exports = {
+  ROL, FASES_NOCHE, MIN_JUGADORES, MAX_JUGADORES, crearPartida, actuar, vista, pendientes, rolesPorDefecto,
+};
