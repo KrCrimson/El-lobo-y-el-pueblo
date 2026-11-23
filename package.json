@@ -1,0 +1,10 @@
+{
+  "name": "lobos-del-pueblo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Juego de roles ocultos (Mafia/Werewolf) para jugar en salas online",
+  "scripts": {
+    "test": "node --test servidor/juego.test.js"
+  },
+  "engines": { "node": ">=20" }
+}
