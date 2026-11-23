@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: el-lobo-servidor
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node servidor/index.js
+    healthCheckPath: /salud
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CORS_ORIGIN
+        sync: false # se escribe en el panel de Render: la URL del cliente en Vercel

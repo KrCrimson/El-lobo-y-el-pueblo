@@ -4,6 +4,9 @@
   "private": true,
   "description": "Juego de roles ocultos (Mafia/Werewolf) para jugar en salas online",
   "scripts": {
+    "instalar": "npm install && npm --prefix cliente install",
+    "dev:servidor": "node servidor/index.js",
+    "dev:cliente": "npm --prefix cliente run dev",
     "test": "node --test \"servidor/*.test.js\""
   },
   "engines": {
