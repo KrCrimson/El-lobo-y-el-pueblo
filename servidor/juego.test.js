@@ -243,6 +243,21 @@ test('la vista no filtra roles ni acciones secretas ajenas', () => {
   assert.deepEqual(vista(e, 'p3').pociones, { pocionVida: true, pocionMuerte: true });
 });
 
+test('la fase de noche solo se detalla a quien debe actuar (no delata qué roles viven)', () => {
+  let e = partida([L, V, B, A, A, A]);
+  assert.equal(vista(e, 'p0').fase, 'lobos');
+  assert.equal(vista(e, 'p3').fase, 'noche');
+  assert.equal(vista(e, 'p1').fase, 'noche'); // la vidente aún no es su turno
+  e = mata(e, 'p0', 'p3');
+  assert.equal(vista(e, 'p1').fase, 'vidente');
+  assert.equal(vista(e, 'p0').fase, 'noche'); // el lobo ya actuó
+  assert.equal(vista(e, 'p4').fase, 'noche');
+  // misma vista para un aldeano en una partida con y sin vidente
+  const sin = mata(partida([L, A, A, A, A, A]), 'p0', 'p1');
+  assert.equal(vista(partida([L, A, A, A, A, A]), 'p3').fase, vista(partida([L, V, B, A, A, A]), 'p3').fase);
+  assert.equal(sin.fase, 'votacion');
+});
+
 test('los votos de los lobos solo los ven los lobos', () => {
   let e = partida([L, L, V, A, A, A, A, A]);
   e = mata(e, 'p0', 'p3');

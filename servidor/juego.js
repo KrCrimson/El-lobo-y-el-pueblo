@@ -289,14 +289,17 @@ function vista(e, jugadorId) {
   const yo = porId(e, jugadorId);
   if (!yo) falla('Jugador desconocido');
   const revelar = (j) => j.id === yo.id || !j.vivo || e.fase === 'fin';
+  const puedeActuar = pendientes(e).includes(yo.id);
+  // Las subfases de la noche solo las ve quien actúa: si no, mostrar "vidente" o "bruja" delataría qué roles siguen vivos.
+  const enNoche = ['lobos', 'vidente', 'bruja'].includes(e.fase);
   const v = {
-    fase: e.fase,
+    fase: enNoche && !puedeActuar ? 'noche' : e.fase,
     ronda: e.ronda,
     ganador: e.ganador,
     yo: { id: yo.id, nombre: yo.nombre, rol: yo.rol, vivo: yo.vivo },
     jugadores: e.jugadores.map((j) => ({ id: j.id, nombre: j.nombre, vivo: j.vivo, ...(revelar(j) ? { rol: j.rol } : {}) })),
     publico: e.publico,
-    puedeActuar: pendientes(e).includes(yo.id),
+    puedeActuar,
   };
   if (e.fase === 'votacion') v.yaVotaron = Object.keys(e.votos);
   if (yo.rol === ROL.LOBO) {
