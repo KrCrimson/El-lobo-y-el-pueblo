@@ -6,12 +6,15 @@ export default function Lobby({ vista, salir }) {
   const soyAnfitrion = vista.anfitrionId === yo;
   const presentes = jugadores.filter((j) => j.conectado).length;
 
-  const sugeridos = { lobos: Math.max(1, Math.floor(presentes / 4)), vidente: true, bruja: presentes >= 6, cazador: presentes >= 8 };
+  const sugeridos = {
+    lobos: Math.max(1, Math.floor(presentes / 4)), vidente: true, bruja: presentes >= 6, cazador: presentes >= 8,
+    cupido: false, capitan: false, revelarRoles: false,
+  };
   const [cfg, setCfg] = useState(null);
   const c = cfg ?? sugeridos;
   const maxLobos = Math.max(1, Math.ceil(presentes / 2) - 1);
   const lobos = Math.min(c.lobos, maxLobos);
-  const especiales = ['vidente', 'bruja', 'cazador'].filter((k) => c[k]).length;
+  const especiales = ['vidente', 'bruja', 'cazador', 'cupido'].filter((k) => c[k]).length;
   const aldeanos = presentes - lobos - especiales;
   // Antes de llegar al mínimo de jugadores no tiene sentido avisar de roles de sobra
   const cabe = aldeanos >= 0 || presentes < minimo;
@@ -61,7 +64,14 @@ export default function Lobby({ vista, salir }) {
               <button aria-label="Más lobos" disabled={lobos >= maxLobos} onClick={() => setCfg({ ...c, lobos: lobos + 1 })}>+</button>
             </div>
           </div>
-          {[['vidente', '🔮 Vidente'], ['bruja', '🧪 Bruja'], ['cazador', '🏹 Cazador']].map(([k, rotulo]) => (
+          {[['vidente', '🔮 Vidente'], ['bruja', '🧪 Bruja'], ['cazador', '🏹 Cazador'], ['cupido', '💘 Cupido']].map(([k, rotulo]) => (
+            <label key={k} className="fila interruptor">
+              <span>{rotulo}</span>
+              <input type="checkbox" checked={!!c[k]} onChange={(e) => setCfg({ ...c, [k]: e.target.checked })} />
+            </label>
+          ))}
+          <p className="etiqueta">Opciones</p>
+          {[['capitan', '🎖️ Elegir un capitán (voto doble)'], ['revelarRoles', '💀 Mostrar el rol de quien muere']].map(([k, rotulo]) => (
             <label key={k} className="fila interruptor">
               <span>{rotulo}</span>
               <input type="checkbox" checked={!!c[k]} onChange={(e) => setCfg({ ...c, [k]: e.target.checked })} />

@@ -1,7 +1,7 @@
 :root {
   --fondo: #0e1330;
   --fondo-2: #1b1f4b;
-  --tarjeta: rgba(255, 255, 255, 0.07);
+  --tarjeta: rgba(10, 14, 40, 0.55);
   --borde: rgba(255, 255, 255, 0.14);
   --texto: #eef0fa;
   --suave: #aab0cf;
@@ -50,7 +50,7 @@ input[type='text'], input:not([type]), input.codigo {
 input.codigo { text-align: center; letter-spacing: 0.5rem; font-size: 1.4rem; font-weight: 700; text-transform: uppercase; }
 input[type='checkbox'] { width: 24px; height: 24px; accent-color: var(--ambar); }
 label { display: block; font-size: 0.85rem; color: var(--suave); margin: 0.9rem 0 0.3rem; }
-.tarjeta { background: var(--tarjeta); border: 1px solid var(--borde); border-radius: var(--radio); padding: 1rem; margin-bottom: 1rem; }
+.tarjeta { background: var(--tarjeta); border: 1px solid var(--borde); border-radius: var(--radio); padding: 1rem; margin-bottom: 1rem; backdrop-filter: blur(6px); }
 .tarjeta > button.primario, .tarjeta > button:not(.contador button) { width: 100%; margin-top: 0.9rem; }
 .error { color: var(--sangre); font-weight: 600; }
 .ayuda { color: var(--suave); font-size: 0.9rem; }
@@ -98,7 +98,7 @@ label { display: block; font-size: 0.85rem; color: var(--suave); margin: 0.9rem 
 .rol.abierto { border-color: var(--luna); }
 .rol-icono { font-size: 2.6rem; }
 .nota { background: rgba(245, 210, 122, 0.1); border-left: 3px solid var(--luna); padding: 0.6rem 0.8rem; border-radius: 8px; font-size: 0.92rem; }
-.estado { background: var(--tarjeta); border: 1px solid var(--borde); border-radius: var(--radio); padding: 1.2rem; text-align: center; margin: 0.8rem 0; }
+.estado { background: var(--tarjeta); backdrop-filter: blur(6px); border: 1px solid var(--borde); border-radius: var(--radio); padding: 1.2rem; text-align: center; margin: 0.8rem 0; }
 .estado.noche { background: linear-gradient(180deg, #121a45, #0a0e26); padding: 2.2rem 1rem; }
 .estado.noche h2 { font-size: 1.6rem; }
 .eleccion { list-style: none; padding: 0; margin: 0.8rem 0; display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
@@ -118,3 +118,71 @@ label { display: block; font-size: 0.85rem; color: var(--suave); margin: 0.9rem 
   .lateral { position: sticky; top: 1rem; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---------- ambiente: noche y día ---------- */
+body { position: relative; }
+body::before, body::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: -1; transition: opacity 1.8s ease; }
+/* Capa de atardecer que aparece de día */
+body::before { background: linear-gradient(180deg, #27346b 0%, #6b4a86 55%, #d98a5c 100%); opacity: 0; }
+body[data-ambiente='dia']::before { opacity: 1; }
+/* Estrellas que titilan de noche */
+body::after {
+  opacity: 0.85;
+  background-image:
+    radial-gradient(1.5px 1.5px at 12% 18%, #fff, transparent), radial-gradient(1px 1px at 27% 62%, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 41% 30%, #fff, transparent), radial-gradient(1px 1px at 58% 12%, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 73% 48%, #fff, transparent), radial-gradient(1px 1px at 88% 22%, #fff, transparent),
+    radial-gradient(1px 1px at 6% 80%, #fff, transparent), radial-gradient(1.5px 1.5px at 66% 84%, #fff, transparent),
+    radial-gradient(1px 1px at 93% 70%, #fff, transparent), radial-gradient(1px 1px at 34% 90%, #fff, transparent);
+  animation: titilar 4s ease-in-out infinite alternate;
+}
+body[data-ambiente='dia']::after { opacity: 0; animation: none; }
+@keyframes titilar { from { filter: brightness(0.6); } to { filter: brightness(1.4); } }
+
+/* Luna / sol en la esquina */
+.astro {
+  position: fixed; top: 4.6rem; right: 0.8rem; width: 44px; height: 44px; border-radius: 50%; z-index: 0; pointer-events: none;
+  background: radial-gradient(circle at 35% 35%, #fff6d8, var(--luna) 60%, #c9a24a);
+  box-shadow: 0 0 40px 8px rgba(245, 210, 122, 0.35);
+  transition: background 1.5s, box-shadow 1.5s, transform 1.5s;
+  animation: flotar 6s ease-in-out infinite;
+}
+body[data-ambiente='dia'] .astro {
+  background: radial-gradient(circle at 50% 50%, #fff3b0, #ffb84a 70%);
+  box-shadow: 0 0 60px 16px rgba(255, 184, 74, 0.55);
+  transform: scale(1.15);
+}
+@keyframes flotar { 50% { translate: 0 6px; } }
+
+/* Entradas suaves */
+.panel, .nota, .narrador, .banner { animation: entrar 0.45s ease both; }
+@keyframes entrar { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.narrador { text-align: center; color: var(--luna); font-style: italic; margin: 0 0 1rem; min-height: 1.4em; padding-right: 3.5rem; padding-left: 3.5rem; }
+.eleccion li { animation: entrar 0.4s ease both; }
+.eleccion li:nth-child(2) { animation-delay: 0.04s; } .eleccion li:nth-child(3) { animation-delay: 0.08s; }
+.eleccion li:nth-child(4) { animation-delay: 0.12s; } .eleccion li:nth-child(n+5) { animation-delay: 0.16s; }
+
+/* Aviso grande de lo que acaba de pasar */
+.aviso-evento {
+  position: fixed; top: 1rem; left: 50%; translate: -50% 0; z-index: 20; width: min(92vw, 460px);
+  background: rgba(10, 14, 40, 0.92); border: 1px solid var(--luna); border-radius: var(--radio);
+  padding: 0.8rem 1.1rem; text-align: center; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  animation: caer-aviso 6s ease both;
+}
+.aviso-evento p { margin: 0.2rem 0; font-weight: 600; }
+@keyframes caer-aviso {
+  0% { opacity: 0; transform: translateY(-30px) scale(0.96); }
+  8%, 88% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(-20px); }
+}
+
+/* Barra de tiempo */
+.progreso { flex-basis: 100%; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.progreso span { display: block; height: 100%; background: var(--luna); transition: width 0.6s linear; }
+.reloj.urgente ~ .progreso span { background: var(--sangre); }
+
+/* Jugadores */
+.lista li { transition: opacity 0.6s, filter 0.6s; }
+.lista li.muerto { filter: grayscale(1); }
+button.rol.abierto { animation: entrar 0.3s ease both; }
+.barra, .principal, .lateral { position: relative; z-index: 1; }

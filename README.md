@@ -8,13 +8,19 @@ Inspirado en los juegos de deducción social tipo *Mafia / Werewolf*. Las reglas
 
 1. Entras con un nombre (sin cuenta) y creas una sala, o te unes con el código de 4 letras o con el enlace.
 2. El anfitrión elige los roles y empieza (de **5 a 12** jugadores).
-3. **Noche:** los lobos eligen a una víctima; la vidente descubre un rol; la bruja puede curar o envenenar.
-4. **Día:** se anuncian las muertes (con su rol) y el pueblo vota a quién linchar.
+3. **Noche**, en este orden: Cupido (solo la primera noche), la vidente descubre un rol, los lobos eligen a una víctima y la bruja puede curar o envenenar.
+4. **Día:** se anuncian las muertes y el pueblo vota a quién linchar. Si el anfitrión lo activó, el primer día el pueblo elige un **capitán**.
 5. Ganan **los aldeanos** si eliminan a todos los lobos, y **los lobos** si igualan en número a los demás.
 
-Roles: aldeano, lobo, vidente, bruja y cazador.
+**Roles:** aldeano, lobo, vidente, bruja, cazador y **Cupido** (enamora a dos jugadores: si uno muere, el otro también).
 
-**Simplificaciones:** no hay capitán, un empate en la votación significa que nadie muere, y la bruja decide curar y/o envenenar en una sola acción. Si alguien no actúa a tiempo, el servidor juega por él (lobos 60 s, vidente y bruja 40 s, cazador 30 s, votación 120 s).
+**Capitán (opcional):** lo elige el pueblo por votación; su voto vale doble y desempata, y al morir nombra a su sucesor.
+
+**Lo que se anuncia al pueblo:** las muertes de la noche aparecen sin causa (lobos y veneno se ven igual) y **sin el rol del muerto**, salvo que el anfitrión active "Mostrar el rol de quien muere". Al terminar se revelan todos los roles. Lo que averiguan los lobos, la vidente, la bruja y Cupido es una nota privada que solo ve cada uno.
+
+**Simplificaciones:** un empate en la votación significa que nadie muere (salvo que el capitán lo desempate), la bruja decide curar y/o envenenar en una sola acción y los enamorados solo mueren juntos (no ganan como pareja). Si alguien no actúa a tiempo, el servidor juega por él (cupido, vidente y bruja 40 s, lobos 60 s, cazador y sucesor 30 s, capitán 60 s, votación 120 s).
+
+**Ambiente:** el fondo cambia entre noche (luna y estrellas) y día (atardecer y sol), con un narrador, avisos de lo que acaba de pasar y una barra de tiempo.
 
 ## Probarlo en tu PC
 
@@ -36,7 +42,7 @@ Cada navegador es un jugador distinto: el identificador se guarda en `localStora
 npm test
 ```
 
-38 pruebas con el ejecutor de Node (sin dependencias): reglas del juego, 300 partidas simuladas, salas, temporizadores, reconexión y una **partida completa por WebSocket** que verifica lo que viaja por la red.
+53 pruebas con el ejecutor de Node (sin dependencias): reglas del juego (incluidos Cupido y capitán), 300 partidas simuladas con comprobación de fugas, salas, temporizadores, reconexión y una **partida completa por WebSocket** que verifica lo que viaja por la red.
 
 ## Estructura
 
@@ -51,7 +57,7 @@ cliente/        Vite + React (celular primero, dos columnas en PC)
 ## Privacidad y seguridad
 
 - **Cada jugador solo recibe su propia información.** El servidor nunca envía los roles de otros jugadores vivos, los votos de los lobos ni los tokens de sesión. Hay pruebas que lo verifican, incluso sobre los mensajes reales de la red.
-- La fase de la noche (lobos, vidente, bruja) solo se detalla a quien actúa, y la noche dura un mínimo fijo: así nadie deduce qué roles siguen vivos por el tiempo que tarda el amanecer.
+- La fase de la noche (cupido, vidente, lobos, bruja) solo se detalla a quien actúa, y la noche dura un mínimo fijo: así nadie deduce qué roles siguen vivos por el tiempo que tarda el amanecer. El registro público tampoco delata la causa de las muertes nocturnas ni los roles.
 - No hay cuentas, ni base de datos, ni datos personales: las partidas viven en la memoria del servidor y se borran al terminar. Solo se guarda en el navegador un identificador aleatorio y el último nombre usado.
 - Validación de todos los datos que llegan, límite de eventos por conexión, tamaño máximo de mensaje, límite de 100 salas y CORS por lista de orígenes.
 
@@ -74,6 +80,6 @@ En el plan gratuito el servicio **se duerme** tras un rato sin uso (la primera c
 
 ## Pendiente / ideas
 
-- Más roles (cupido, niña, ladrón) y capitán.
+- Más roles (niña, ladrón, protector, idiota del pueblo).
 - Chat de texto dentro de la sala (por ahora se juega con una llamada aparte).
 - Sonidos y animaciones de noche y día.
